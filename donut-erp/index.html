@@ -309,14 +309,93 @@ td input[type=number],td input[type=text]{width:100%;border:1px solid #c9a87a;pa
 
 <script>
 // ================================================================
+// GAS API 設定
+// ================================================================
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbxQxFtrOHXKl1uN7ua3p4Dz0uIINR87PSiPuo2AXpJc1gzk4uMYfieYbGBuXzne6mSM/exec';
+
+const GET_ACTIONS = new Set([
+  'getAllMasterData', 'getProductionPlan', 'getWorkSchedule',
+  'getInventory', 'getInventoryProjection', 'getOrderSummary', 'getCostByProduct'
+]);
+
+// 旧 google.script.run 互換のシグネチャを fetch に変換
+async function gasCall(action, ...args) {
+  const params = buildApiParams(action, args);
+
+  if (GET_ACTIONS.has(action)) {
+    const qs = new URLSearchParams({ action, ...params }).toString();
+    const r  = await fetch(GAS_URL + '?' + qs);
+    const d  = await r.json();
+    if (d.status === 'error') throw new Error(d.message);
+    return d.result;
+  } else {
+    const r = await fetch(GAS_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body:    'payload=' + encodeURIComponent(JSON.stringify({ action, ...params }))
+    });
+    const d = await r.json();
+    if (d.status === 'error') throw new Error(d.message);
+    return d.result;
+  }
+}
+
+function buildApiParams(action, args) {
+  switch (action) {
+    // GET
+    case 'getAllMasterData':
+    case 'getInventory':
+    case 'getCostByProduct':
+      return {};
+    case 'getProductionPlan':
+    case 'getOrderSummary':
+    case 'getInventoryProjection':
+      return { start: args[0], end: args[1] };
+    case 'getWorkSchedule':
+      return { workDate: args[0] };
+    // POST - マスタ保存
+    case 'saveIngredient':
+    case 'saveStore':
+    case 'saveProduct':
+    case 'saveRecipe':
+    case 'saveFixedRecipe':
+      return { data: args[0] };
+    // POST - マスタ削除
+    case 'deleteIngredient':
+    case 'deleteStore':
+    case 'deleteProduct':
+    case 'deleteRecipe':
+    case 'deleteFixedRecipe':
+      return { id: args[0] };
+    // POST - 生産計画
+    case 'saveProductionPlanItems':
+      return { items: args[0], password: args[1] };
+    case 'deleteProductionPlanItems':
+      return { ids: args[0], password: args[1] };
+    case 'exportProductionPlan':
+      return {};
+    case 'importProductionPlan':
+      return { password: args[0] };
+    // POST - 在庫
+    case 'updateInventoryItem':
+      return { ingredientId: args[0], quantity: args[1] };
+    // POST - 認証
+    case 'verifyPassword':
+      return { password: args[0] };
+    default:
+      return {};
+  }
+}
+
+// ================================================================
 // アプリ状態
 // ================================================================
 const App = {
   masters: { ingredients:[], stores:[], products:[], recipes:[], fixedRecipes:[] },
   adminPassword: null,
   planEditMode: false,
-  planData: [],      // フラットな生産計画データ
-  planProducts: [],  // 生産計画列方向の商品リスト（表示順管理）
+  planData: [],
+  planProducts: [],
   pwCallback: null
 };
 
@@ -329,55 +408,42 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function setDefaultDates() {
-  const today = fmtDate(new Date());
+  const today    = fmtDate(new Date());
   const nextWeek = fmtDate(new Date(Date.now() + 7*86400000));
-  const nextMonth = fmtDate(new Date(Date.now() + 30*86400000));
+  const nextMonth= fmtDate(new Date(Date.now() + 30*86400000));
 
-  q('#work-date').value = today;
+  q('#work-date').value  = today;
   q('#plan-start').value = today;
-  q('#plan-end').value = nextWeek;
-  q('#order-start').value = today;
-  q('#order-end').value = nextWeek;
+  q('#plan-end').value   = nextWeek;
+  q('#order-start').value= today;
+  q('#order-end').value  = nextWeek;
   q('#proj-start').value = today;
-  q('#proj-end').value = nextMonth;
+  q('#proj-end').value   = nextMonth;
 }
 
 // ================================================================
 // ユーティリティ
 // ================================================================
-const q = s => document.querySelector(s);
+const q  = s => document.querySelector(s);
 const qa = s => document.querySelectorAll(s);
 
 function fmtDate(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth()+1).padStart(2,'0');
-  const dd = String(d.getDate()).padStart(2,'0');
-  return `${y}-${m}-${dd}`;
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
-
 function fmtDateJp(s) {
   if (!s) return '';
   const [y,m,d] = s.split('-');
   return `${y}/${m}/${d}`;
 }
-
 function showMsg(elId, msg, isError=false) {
   const el = q('#'+elId);
   if (!el) return;
   el.textContent = msg;
   el.className = 'msg-area ' + (isError ? 'msg-err' : 'msg-ok');
 }
-
 function setLoading(elId, text='読込中...') {
   const el = q('#'+elId);
   if (el) el.innerHTML = `<p class="loading">${text}</p>`;
-}
-
-function gasCall(fn, ...args) {
-  return new Promise((resolve, reject) => {
-    let runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(reject);
-    runner[fn](...args);
-  });
 }
 
 // ================================================================
@@ -389,8 +455,8 @@ function showTab(name) {
   event.target.classList.add('active');
   q('#tab-'+name).classList.add('active');
 
-  if (name === 'masters') loadMasters();
-  if (name === 'cost') loadCost();
+  if (name === 'masters')   loadMasters();
+  if (name === 'cost')      loadCost();
   if (name === 'inventory') loadInventory();
 }
 
@@ -418,9 +484,8 @@ async function loadMasters() {
 
 // ---- 原料マスタ ----
 function renderIngredientList() {
-  const list = App.masters.ingredients;
   let html = `<table><tr><th>表示順</th><th>原料名</th><th>仕入先</th><th>原価(円/g)</th><th class="no-print">操作</th></tr>`;
-  list.forEach(r => {
+  App.masters.ingredients.forEach(r => {
     html += `<tr>
       <td>${r.display_order}</td><td>${esc(r.name)}</td>
       <td>${esc(r.supplier)}</td><td>${r.unit_cost}</td>
@@ -429,8 +494,7 @@ function renderIngredientList() {
         <button class="btn btn-danger btn-sm" onclick="deleteIngredient('${r.id}')">削除</button>
       </td></tr>`;
   });
-  html += '</table>';
-  q('#ingredient-list').innerHTML = html;
+  q('#ingredient-list').innerHTML = html + '</table>';
 }
 
 function openIngredientModal(data={}) {
@@ -440,30 +504,17 @@ function openIngredientModal(data={}) {
     <div class="form-row"><label>原価(円/g)</label><input type="number" id="f-ing-cost" step="0.01" value="${data.unit_cost||0}"></div>
     <div class="form-row"><label>表示順</label><input type="number" id="f-ing-order" value="${data.display_order||0}"></div>
   `, async () => {
-    const obj = {
-      id:            data.id||'',
-      name:          q('#f-ing-name').value.trim(),
-      supplier:      q('#f-ing-supplier').value.trim(),
-      unit_cost:     q('#f-ing-cost').value,
-      display_order: q('#f-ing-order').value
-    };
+    const obj = { id:data.id||'', name:q('#f-ing-name').value.trim(), supplier:q('#f-ing-supplier').value.trim(), unit_cost:q('#f-ing-cost').value, display_order:q('#f-ing-order').value };
     if (!obj.name) return alert('原料名を入力してください');
-    try {
-      await gasCall('saveIngredient', obj);
-      closeModal();
-      showMsg('msg-m-ing','保存しました');
-      await loadMasters();
-    } catch(e) { showMsg('msg-m-ing','エラー: '+e.message, true); }
+    try { await gasCall('saveIngredient', obj); closeModal(); showMsg('msg-m-ing','保存しました'); await loadMasters(); }
+    catch(e) { showMsg('msg-m-ing','エラー: '+e.message, true); }
   });
 }
 
 async function deleteIngredient(id) {
   if (!confirm('削除しますか？')) return;
-  try {
-    await gasCall('deleteIngredient', id);
-    showMsg('msg-m-ing','削除しました');
-    await loadMasters();
-  } catch(e) { showMsg('msg-m-ing','エラー: '+e.message, true); }
+  try { await gasCall('deleteIngredient', id); showMsg('msg-m-ing','削除しました'); await loadMasters(); }
+  catch(e) { showMsg('msg-m-ing','エラー: '+e.message, true); }
 }
 
 // ---- 店舗マスタ ----
@@ -476,8 +527,7 @@ function renderStoreList() {
         <button class="btn btn-danger btn-sm" onclick="deleteStore('${r.id}')">削除</button>
       </td></tr>`;
   });
-  html += '</table>';
-  q('#store-list').innerHTML = html;
+  q('#store-list').innerHTML = html + '</table>';
 }
 
 function openStoreModal(data={}) {
@@ -485,38 +535,30 @@ function openStoreModal(data={}) {
     <div class="form-row"><label>店舗名</label><input id="f-store-name" value="${esc(data.name||'')}"></div>
     <div class="form-row"><label>表示順</label><input type="number" id="f-store-order" value="${data.display_order||0}"></div>
   `, async () => {
-    const obj = { id: data.id||'', name: q('#f-store-name').value.trim(), display_order: q('#f-store-order').value };
+    const obj = { id:data.id||'', name:q('#f-store-name').value.trim(), display_order:q('#f-store-order').value };
     if (!obj.name) return alert('店舗名を入力してください');
-    try {
-      await gasCall('saveStore', obj);
-      closeModal(); showMsg('msg-m-store','保存しました');
-      await loadMasters();
-    } catch(e) { showMsg('msg-m-store','エラー: '+e.message, true); }
+    try { await gasCall('saveStore', obj); closeModal(); showMsg('msg-m-store','保存しました'); await loadMasters(); }
+    catch(e) { showMsg('msg-m-store','エラー: '+e.message, true); }
   });
 }
 
 async function deleteStore(id) {
   if (!confirm('削除しますか？')) return;
-  try {
-    await gasCall('deleteStore', id);
-    showMsg('msg-m-store','削除しました');
-    await loadMasters();
-  } catch(e) { showMsg('msg-m-store','エラー: '+e.message, true); }
+  try { await gasCall('deleteStore', id); showMsg('msg-m-store','削除しました'); await loadMasters(); }
+  catch(e) { showMsg('msg-m-store','エラー: '+e.message, true); }
 }
 
 // ---- 商品マスタ ----
 function renderProductList() {
   let html = `<table><tr><th>表示順</th><th>名称</th><th>種別</th><th>固定表示</th><th class="no-print">操作</th></tr>`;
   App.masters.products.forEach(r => {
-    html += `<tr><td>${r.display_order}</td><td>${esc(r.name)}</td>
-      <td>${esc(r.type)}</td><td>${r.fixed_display}</td>
+    html += `<tr><td>${r.display_order}</td><td>${esc(r.name)}</td><td>${esc(r.type)}</td><td>${r.fixed_display}</td>
       <td class="no-print">
         <button class="btn btn-secondary btn-sm" onclick='openProductModal(${JSON.stringify(r)})'>編集</button>
         <button class="btn btn-danger btn-sm" onclick="deleteProduct('${r.id}')">削除</button>
       </td></tr>`;
   });
-  html += '</table>';
-  q('#product-list').innerHTML = html;
+  q('#product-list').innerHTML = html + '</table>';
 }
 
 function openProductModal(data={}) {
@@ -526,37 +568,25 @@ function openProductModal(data={}) {
       <select id="f-prod-type">
         <option value="商品" ${data.type==='商品'?'selected':''}>商品</option>
         <option value="半製品" ${data.type==='半製品'?'selected':''}>半製品</option>
-      </select>
-    </div>
+      </select></div>
     <div class="form-row"><label>固定表示</label>
       <select id="f-prod-fixed">
         <option value="FALSE" ${String(data.fixed_display).toUpperCase()!=='TRUE'?'selected':''}>FALSE（通常）</option>
         <option value="TRUE" ${String(data.fixed_display).toUpperCase()==='TRUE'?'selected':''}>TRUE（固定表示）</option>
-      </select>
-    </div>
+      </select></div>
     <div class="form-row"><label>表示順</label><input type="number" id="f-prod-order" value="${data.display_order||0}"></div>
   `, async () => {
-    const obj = {
-      id: data.id||'', name: q('#f-prod-name').value.trim(),
-      type: q('#f-prod-type').value, fixed_display: q('#f-prod-fixed').value,
-      display_order: q('#f-prod-order').value
-    };
+    const obj = { id:data.id||'', name:q('#f-prod-name').value.trim(), type:q('#f-prod-type').value, fixed_display:q('#f-prod-fixed').value, display_order:q('#f-prod-order').value };
     if (!obj.name) return alert('名称を入力してください');
-    try {
-      await gasCall('saveProduct', obj);
-      closeModal(); showMsg('msg-m-prod','保存しました');
-      await loadMasters();
-    } catch(e) { showMsg('msg-m-prod','エラー: '+e.message, true); }
+    try { await gasCall('saveProduct', obj); closeModal(); showMsg('msg-m-prod','保存しました'); await loadMasters(); }
+    catch(e) { showMsg('msg-m-prod','エラー: '+e.message, true); }
   });
 }
 
 async function deleteProduct(id) {
   if (!confirm('削除しますか？')) return;
-  try {
-    await gasCall('deleteProduct', id);
-    showMsg('msg-m-prod','削除しました');
-    await loadMasters();
-  } catch(e) { showMsg('msg-m-prod','エラー: '+e.message, true); }
+  try { await gasCall('deleteProduct', id); showMsg('msg-m-prod','削除しました'); await loadMasters(); }
+  catch(e) { showMsg('msg-m-prod','エラー: '+e.message, true); }
 }
 
 // ---- レシピマスタ ----
@@ -565,56 +595,44 @@ function renderRecipeList() {
   const prodMap = {};
   products.forEach(p => { prodMap[p.id] = p.name; });
 
-  // 親ごとにグループ化して表示
   const grouped = {};
-  recipes.forEach(r => {
-    if (!grouped[r.parent_id]) grouped[r.parent_id] = [];
-    grouped[r.parent_id].push(r);
-  });
+  recipes.forEach(r => { if (!grouped[r.parent_id]) grouped[r.parent_id] = []; grouped[r.parent_id].push(r); });
 
-  const topOrder = [...new Set(products.map(p => p.id))];
   let html = `<table><tr><th>親（商品/半製品）</th><th>子（原料/半製品）</th><th>種別</th><th>重量(g)</th><th>作業日(日前)</th><th>表示順</th><th class="no-print">操作</th></tr>`;
-  topOrder.forEach(pid => {
-    if (!grouped[pid]) return;
-    grouped[pid].sort((a,b)=>Number(a.display_order||0)-Number(b.display_order||0)).forEach(r => {
+  products.forEach(p => {
+    if (!grouped[p.id]) return;
+    grouped[p.id].sort((a,b)=>Number(a.display_order||0)-Number(b.display_order||0)).forEach(r => {
+      const childName = r.child_type==='原料'
+        ? (App.masters.ingredients.find(i=>i.id===r.child_id)?.name||r.child_id)
+        : (prodMap[r.child_id]||r.child_id);
       html += `<tr>
-        <td>${esc(prodMap[r.parent_id]||r.parent_id)}</td>
-        <td>${esc(prodMap[r.child_id]||App.masters.ingredients.find(i=>i.id===r.child_id)?.name||r.child_id)}</td>
-        <td>${esc(r.child_type)}</td><td>${r.weight}</td>
-        <td>${r.work_days_before}</td><td>${r.display_order}</td>
+        <td>${esc(prodMap[r.parent_id]||r.parent_id)}</td><td>${esc(childName)}</td>
+        <td>${esc(r.child_type)}</td><td>${r.weight}</td><td>${r.work_days_before}</td><td>${r.display_order}</td>
         <td class="no-print">
           <button class="btn btn-secondary btn-sm" onclick='openRecipeModal(${JSON.stringify(r)})'>編集</button>
           <button class="btn btn-danger btn-sm" onclick="deleteRecipe('${r.id}')">削除</button>
         </td></tr>`;
     });
   });
-  html += '</table>';
-  q('#recipe-list').innerHTML = html;
+  q('#recipe-list').innerHTML = html + '</table>';
 }
 
-function buildProductOptions(selected='', includeIngredients=false) {
-  const { products, ingredients } = App.masters;
+function buildProductOptions(selected='') {
+  const { products } = App.masters;
   let opts = '<option value="">-- 選択 --</option>';
-  opts += '<optgroup label="商品・半製品">';
   products.forEach(p => { opts += `<option value="${p.id}" ${p.id===selected?'selected':''}>${esc(p.name)}（${p.type}）</option>`; });
-  opts += '</optgroup>';
-  if (includeIngredients) {
-    opts += '<optgroup label="原料">';
-    ingredients.forEach(i => { opts += `<option value="${i.id}" ${i.id===selected?'selected':''}>${esc(i.name)}</option>`; });
-    opts += '</optgroup>';
-  }
   return opts;
 }
 
 function buildChildOptions(selected='', childType='') {
   const { products, ingredients } = App.masters;
   let opts = '<option value="">-- 選択 --</option>';
-  if (!childType || childType === '半製品') {
+  if (!childType || childType==='半製品') {
     opts += '<optgroup label="半製品">';
     products.filter(p=>p.type==='半製品').forEach(p => { opts += `<option value="${p.id}" ${p.id===selected?'selected':''}>${esc(p.name)}</option>`; });
     opts += '</optgroup>';
   }
-  if (!childType || childType === '原料') {
+  if (!childType || childType==='原料') {
     opts += '<optgroup label="原料">';
     ingredients.forEach(i => { opts += `<option value="${i.id}" ${i.id===selected?'selected':''}>${esc(i.name)}</option>`; });
     opts += '</optgroup>';
@@ -630,77 +648,56 @@ function openRecipeModal(data={}) {
       <select id="f-rec-ctype" onchange="updateChildSelect()">
         <option value="半製品" ${data.child_type==='半製品'?'selected':''}>半製品</option>
         <option value="原料" ${data.child_type==='原料'?'selected':''}>原料</option>
-      </select>
-    </div>
+      </select></div>
     <div class="form-row"><label>子（原料/半製品）</label>
       <select id="f-rec-child">${buildChildOptions(data.child_id, data.child_type)}</select></div>
     <div class="form-row"><label>重量(g)</label><input type="number" id="f-rec-weight" step="0.1" value="${data.weight||0}"></div>
     <div class="form-row"><label>作業日(日前)</label><input type="number" id="f-rec-days" value="${data.work_days_before||0}"></div>
     <div class="form-row"><label>表示順</label><input type="number" id="f-rec-order" value="${data.display_order||0}"></div>
   `, async () => {
-    const childType = q('#f-rec-ctype').value;
     const childId   = q('#f-rec-child').value;
-    const { products, ingredients } = App.masters;
-    // child_typeを自動判定
-    const isProd = products.find(p=>p.id===childId);
-    const isIng  = ingredients.find(i=>i.id===childId);
-    const resolvedType = isProd ? isProd.type : (isIng ? '原料' : childType);
-
-    const obj = {
-      id: data.id||'', parent_id: q('#f-rec-parent').value,
-      child_id: childId, child_type: resolvedType === '商品' ? '半製品' : resolvedType,
-      weight: q('#f-rec-weight').value, work_days_before: q('#f-rec-days').value,
-      display_order: q('#f-rec-order').value
-    };
+    const childType = q('#f-rec-ctype').value;
+    const isProd    = App.masters.products.find(p=>p.id===childId);
+    const resolvedType = isProd ? (isProd.type==='商品'?'半製品':isProd.type) : '原料';
+    const obj = { id:data.id||'', parent_id:q('#f-rec-parent').value, child_id:childId, child_type:resolvedType, weight:q('#f-rec-weight').value, work_days_before:q('#f-rec-days').value, display_order:q('#f-rec-order').value };
     if (!obj.parent_id || !obj.child_id) return alert('親・子を選択してください');
-    try {
-      await gasCall('saveRecipe', obj);
-      closeModal(); showMsg('msg-m-recipe','保存しました');
-      await loadMasters();
-    } catch(e) { showMsg('msg-m-recipe','エラー: '+e.message, true); }
+    try { await gasCall('saveRecipe', obj); closeModal(); showMsg('msg-m-recipe','保存しました'); await loadMasters(); }
+    catch(e) { showMsg('msg-m-recipe','エラー: '+e.message, true); }
   });
 }
 
 function updateChildSelect() {
-  const type = q('#f-rec-ctype').value;
-  q('#f-rec-child').innerHTML = buildChildOptions('', type);
+  q('#f-rec-child').innerHTML = buildChildOptions('', q('#f-rec-ctype').value);
 }
 
 async function deleteRecipe(id) {
   if (!confirm('削除しますか？')) return;
-  try {
-    await gasCall('deleteRecipe', id);
-    showMsg('msg-m-recipe','削除しました');
-    await loadMasters();
-  } catch(e) { showMsg('msg-m-recipe','エラー: '+e.message, true); }
+  try { await gasCall('deleteRecipe', id); showMsg('msg-m-recipe','削除しました'); await loadMasters(); }
+  catch(e) { showMsg('msg-m-recipe','エラー: '+e.message, true); }
 }
 
 // ---- 固定レシピ ----
 function renderFixedRecipeList() {
   const { products, ingredients, fixedRecipes } = App.masters;
-  const prodMap = {};
-  products.forEach(p => { prodMap[p.id] = p; });
-  const ingMap = {};
-  ingredients.forEach(i => { ingMap[i.id] = i; });
+  const prodMap = {}; products.forEach(p => { prodMap[p.id] = p; });
+  const ingMap  = {}; ingredients.forEach(i => { ingMap[i.id] = i; });
 
   let html = `<table><tr><th>半製品名</th><th>原料/半製品</th><th>種別</th><th>重量(g)</th><th>表示順</th><th class="no-print">操作</th></tr>`;
   fixedRecipes.sort((a,b)=>Number(a.display_order||0)-Number(b.display_order||0)).forEach(r => {
     const childName = r.child_type==='原料' ? (ingMap[r.child_id]?.name||r.child_id) : (prodMap[r.child_id]?.name||r.child_id);
     html += `<tr>
-      <td>${esc(prodMap[r.item_id]?.name||r.item_id)}</td>
-      <td>${esc(childName)}</td><td>${esc(r.child_type)}</td>
-      <td>${r.weight}</td><td>${r.display_order}</td>
+      <td>${esc(prodMap[r.item_id]?.name||r.item_id)}</td><td>${esc(childName)}</td>
+      <td>${esc(r.child_type)}</td><td>${r.weight}</td><td>${r.display_order}</td>
       <td class="no-print">
         <button class="btn btn-secondary btn-sm" onclick='openFixedRecipeModal(${JSON.stringify(r)})'>編集</button>
         <button class="btn btn-danger btn-sm" onclick="deleteFixedRecipe('${r.id}')">削除</button>
       </td></tr>`;
   });
-  html += '</table>';
-  q('#fixed-recipe-list').innerHTML = html;
+  q('#fixed-recipe-list').innerHTML = html + '</table>';
 }
 
 function buildSemiProductOptions(selected='') {
-  const fixed = App.masters.products.filter(p => String(p.fixed_display).toUpperCase() === 'TRUE');
+  const fixed = App.masters.products.filter(p => String(p.fixed_display).toUpperCase()==='TRUE');
   let opts = '<option value="">-- 選択 --</option>';
   fixed.forEach(p => { opts += `<option value="${p.id}" ${p.id===selected?'selected':''}>${esc(p.name)}</option>`; });
   return opts;
@@ -714,34 +711,23 @@ function openFixedRecipeModal(data={}) {
       <select id="f-fx-ctype">
         <option value="原料" ${data.child_type!=='半製品'?'selected':''}>原料</option>
         <option value="半製品" ${data.child_type==='半製品'?'selected':''}>半製品</option>
-      </select>
-    </div>
+      </select></div>
     <div class="form-row"><label>子（原料/半製品）</label>
       <select id="f-fx-child">${buildChildOptions(data.child_id, data.child_type)}</select></div>
     <div class="form-row"><label>重量(g)</label><input type="number" id="f-fx-weight" step="0.1" value="${data.weight||0}"></div>
     <div class="form-row"><label>表示順</label><input type="number" id="f-fx-order" value="${data.display_order||0}"></div>
   `, async () => {
-    const obj = {
-      id: data.id||'', item_id: q('#f-fx-item').value,
-      child_id: q('#f-fx-child').value, child_type: q('#f-fx-ctype').value,
-      weight: q('#f-fx-weight').value, display_order: q('#f-fx-order').value
-    };
+    const obj = { id:data.id||'', item_id:q('#f-fx-item').value, child_id:q('#f-fx-child').value, child_type:q('#f-fx-ctype').value, weight:q('#f-fx-weight').value, display_order:q('#f-fx-order').value };
     if (!obj.item_id || !obj.child_id) return alert('半製品と子を選択してください');
-    try {
-      await gasCall('saveFixedRecipe', obj);
-      closeModal(); showMsg('msg-m-fixed','保存しました');
-      await loadMasters();
-    } catch(e) { showMsg('msg-m-fixed','エラー: '+e.message, true); }
+    try { await gasCall('saveFixedRecipe', obj); closeModal(); showMsg('msg-m-fixed','保存しました'); await loadMasters(); }
+    catch(e) { showMsg('msg-m-fixed','エラー: '+e.message, true); }
   });
 }
 
 async function deleteFixedRecipe(id) {
   if (!confirm('削除しますか？')) return;
-  try {
-    await gasCall('deleteFixedRecipe', id);
-    showMsg('msg-m-fixed','削除しました');
-    await loadMasters();
-  } catch(e) { showMsg('msg-m-fixed','エラー: '+e.message, true); }
+  try { await gasCall('deleteFixedRecipe', id); showMsg('msg-m-fixed','削除しました'); await loadMasters(); }
+  catch(e) { showMsg('msg-m-fixed','エラー: '+e.message, true); }
 }
 
 // ================================================================
@@ -752,73 +738,57 @@ async function loadWorkSchedule() {
   if (!workDate) { showMsg('msg-work','作業日を選択してください', true); return; }
   setLoading('work-result','作業内容を計算中...');
   showMsg('msg-work','');
-  try {
-    const data = await gasCall('getWorkSchedule', workDate);
-    renderWorkSchedule(data);
-  } catch(e) { showMsg('msg-work','エラー: '+e.message, true); q('#work-result').innerHTML=''; }
+  try { renderWorkSchedule(await gasCall('getWorkSchedule', workDate)); }
+  catch(e) { showMsg('msg-work','エラー: '+e.message, true); q('#work-result').innerHTML=''; }
 }
 
 function renderWorkSchedule(data) {
   const { workDate, dailyItems, fixedItems } = data;
   let html = `<h3>作業日：${fmtDateJp(workDate)}</h3>`;
 
-  if (dailyItems.length === 0 && fixedItems.length === 0) {
+  if (!dailyItems.length && !fixedItems.length) {
     html += '<p style="color:#888;padding:12px">この作業日の作業はありません。</p>';
-    q('#work-result').innerHTML = html;
-    return;
+    q('#work-result').innerHTML = html; return;
   }
 
-  if (dailyItems.length > 0) {
+  if (dailyItems.length) {
     html += '<div class="work-section"><h3>■ 通常作業</h3>';
     dailyItems.forEach(item => {
       if (item.type === 'semi_product') {
-        html += `<div class="work-card">
-          <div class="work-card-header">
-            <span>${esc(item.itemName)}</span>
-            <span class="sub">出荷日: ${fmtDateJp(item.shippingDate)} ／ 必要量: <strong>${fmtGrams(item.totalNeededGrams)}</strong></span>
-          </div>
-          <ul class="recipe-list">`;
-        item.recipe.forEach(r => {
-          html += `<li><span class="ing-name">${esc(r.childName)}</span><span class="ing-qty">${fmtGrams(r.scaledWeight)}</span></li>`;
-        });
+        html += `<div class="work-card"><div class="work-card-header">
+          <span>${esc(item.itemName)}</span>
+          <span class="sub">出荷日: ${fmtDateJp(item.shippingDate)} ／ 必要量: <strong>${fmtGrams(item.totalNeededGrams)}</strong></span>
+          </div><ul class="recipe-list">`;
+        item.recipe.forEach(r => { html += `<li><span class="ing-name">${esc(r.childName)}</span><span class="ing-qty">${fmtGrams(r.scaledWeight)}</span></li>`; });
         html += `</ul></div>`;
       } else {
-        // 直接原料
-        html += `<div class="work-card">
-          <div class="work-card-header">
-            <span>${esc(item.itemName)}<span class="fixed-badge">原料</span></span>
-            <span class="sub">出荷日: ${fmtDateJp(item.shippingDate)}</span>
-          </div>
-          <ul class="recipe-list">
-            <li><span class="ing-name">${esc(item.itemName)}</span><span class="ing-qty">${fmtGrams(item.totalNeededGrams)}</span></li>
+        html += `<div class="work-card"><div class="work-card-header">
+          <span>${esc(item.itemName)}<span class="fixed-badge">原料</span></span>
+          <span class="sub">出荷日: ${fmtDateJp(item.shippingDate)}</span>
+          </div><ul class="recipe-list">
+          <li><span class="ing-name">${esc(item.itemName)}</span><span class="ing-qty">${fmtGrams(item.totalNeededGrams)}</span></li>
           </ul></div>`;
       }
     });
     html += '</div>';
   }
 
-  if (fixedItems.length > 0) {
+  if (fixedItems.length) {
     html += '<div class="work-section"><h3>■ 固定レシピ（まとめ製造品）</h3>';
     fixedItems.forEach(item => {
-      html += `<div class="work-card">
-        <div class="work-card-header">
-          <span>${esc(item.itemName)}<span class="fixed-badge">固定</span></span>
-          <span class="sub">作業日は現場判断</span>
-        </div>
-        <ul class="recipe-list">`;
-      item.recipe.forEach(r => {
-        html += `<li><span class="ing-name">${esc(r.childName)}</span><span class="ing-qty">${fmtGrams(r.weight)}</span></li>`;
-      });
+      html += `<div class="work-card"><div class="work-card-header">
+        <span>${esc(item.itemName)}<span class="fixed-badge">固定</span></span>
+        <span class="sub">作業日は現場判断</span></div><ul class="recipe-list">`;
+      item.recipe.forEach(r => { html += `<li><span class="ing-name">${esc(r.childName)}</span><span class="ing-qty">${fmtGrams(r.weight)}</span></li>`; });
       html += `</ul></div>`;
     });
     html += '</div>';
   }
-
   q('#work-result').innerHTML = html;
 }
 
 function fmtGrams(g) {
-  const n = Number(g || 0);
+  const n = Number(g||0);
   return n >= 1000 ? (n/1000).toFixed(2).replace(/\.?0+$/,'') + ' kg' : n + ' g';
 }
 
@@ -828,71 +798,49 @@ function fmtGrams(g) {
 let planEditPassword = null;
 
 async function loadPlan() {
-  const start = q('#plan-start').value;
-  const end   = q('#plan-end').value;
+  const start = q('#plan-start').value, end = q('#plan-end').value;
   if (!start || !end) { showMsg('msg-plan','期間を選択してください', true); return; }
   setLoading('plan-result','生産計画を読込中...');
   showMsg('msg-plan','');
   try {
     const data = await gasCall('getProductionPlan', start, end);
-    App.planData = data;
+    App.planData     = data;
     App.planProducts = App.masters.products.filter(p => p.type === '商品');
     renderPlanMatrix(data, App.planProducts, App.planEditMode);
   } catch(e) { showMsg('msg-plan','エラー: '+e.message, true); }
 }
 
 function renderPlanMatrix(planData, products, editable) {
-  if (products.length === 0) {
-    q('#plan-result').innerHTML = '<p style="color:#888">商品マスタに商品が登録されていません。</p>';
-    return;
-  }
+  if (!products.length) { q('#plan-result').innerHTML = '<p style="color:#888">商品マスタに商品が登録されていません。</p>'; return; }
 
-  // (date, store) ペアの一覧を作成
-  const stores = App.masters.stores;
   const pairSet = new Set();
   planData.forEach(p => { pairSet.add(p.shipping_date + '|||' + p.store_id); });
 
-  // データマップ: date_store_product -> record
   const dataMap = {};
-  planData.forEach(p => {
-    const k = p.shipping_date + '|' + p.store_id + '|' + p.product_id;
-    dataMap[k] = p;
-  });
+  planData.forEach(p => { dataMap[p.shipping_date+'|'+p.store_id+'|'+p.product_id] = p; });
 
-  const pairs = [...pairSet].sort((a,b) => a < b ? -1 : 1);
+  const pairs    = [...pairSet].sort();
+  const storeMap = {};
+  App.masters.stores.forEach(s => { storeMap[s.id] = s.name; });
 
-  let html = '';
-  if (editable) {
-    html += `<div class="edit-mode-notice">✏️ 編集モード有効 — 数量を編集後「保存」を押してください</div>`;
-  }
-  html += `<div class="tbl-wrap"><table class="plan-matrix">
-    <thead><tr>
-      <th>出荷日</th><th>店舗</th>`;
+  let html = editable ? `<div class="edit-mode-notice">✏️ 編集モード有効 — 数量を編集後「保存」を押してください</div>` : '';
+  html += `<div class="tbl-wrap"><table class="plan-matrix"><thead><tr><th>出荷日</th><th>店舗</th>`;
   products.forEach(p => { html += `<th class="product-col">${esc(p.name)}</th>`; });
   html += `</tr></thead><tbody>`;
 
-  const storeMap = {};
-  stores.forEach(s => { storeMap[s.id] = s.name; });
-
   pairs.forEach(pair => {
     const [date, storeId] = pair.split('|||');
-    html += `<tr>
-      <td class="date-cell">${fmtDateJp(date)}</td>
-      <td class="store-cell">${esc(storeMap[storeId] || storeId)}</td>`;
+    html += `<tr><td class="date-cell">${fmtDateJp(date)}</td><td class="store-cell">${esc(storeMap[storeId]||storeId)}</td>`;
     products.forEach(p => {
-      const k = date + '|' + storeId + '|' + p.id;
-      const rec = dataMap[k];
-      const val = rec ? (rec.quantity || '') : '';
-      const recId = rec ? rec.id : '';
-      if (editable) {
-        html += `<td class="qty-cell"><input type="number" min="0" data-date="${date}" data-store="${storeId}" data-product="${p.id}" data-id="${recId}" value="${val}" style="width:60px"></td>`;
-      } else {
-        html += `<td class="qty-cell">${val}</td>`;
-      }
+      const rec = dataMap[date+'|'+storeId+'|'+p.id];
+      const val = rec ? (rec.quantity||'') : '';
+      const id  = rec ? rec.id : '';
+      html += editable
+        ? `<td class="qty-cell"><input type="number" min="0" data-date="${date}" data-store="${storeId}" data-product="${p.id}" data-id="${id}" value="${val}" style="width:60px"></td>`
+        : `<td class="qty-cell">${val}</td>`;
     });
     html += '</tr>';
   });
-
   html += '</tbody></table></div>';
   q('#plan-result').innerHTML = html;
 }
@@ -900,9 +848,9 @@ function renderPlanMatrix(planData, products, editable) {
 function enterEditMode() {
   if (App.planEditMode) return;
   openPwModal(pw => {
-    planEditPassword = pw;
-    App.planEditMode = true;
-    q('#plan-save-btn').style.display = '';
+    planEditPassword    = pw;
+    App.planEditMode    = true;
+    q('#plan-save-btn').style.display    = '';
     q('#plan-add-row-btn').style.display = '';
     renderPlanMatrix(App.planData, App.planProducts, true);
     showMsg('msg-plan','編集モードになりました');
@@ -910,24 +858,15 @@ function enterEditMode() {
 }
 
 function addPlanRow() {
-  const stores   = App.masters.stores;
-  const storeOpts = stores.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+  const storeOpts = App.masters.stores.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('');
   showModal('行追加（出荷日・店舗）', `
     <div class="form-row"><label>出荷日</label><input type="date" id="f-plan-date"></div>
     <div class="form-row"><label>店舗</label><select id="f-plan-store"><option value="">-- 選択 --</option>${storeOpts}</select></div>
   `, () => {
-    const date    = q('#f-plan-date').value;
-    const storeId = q('#f-plan-store').value;
+    const date = q('#f-plan-date').value, storeId = q('#f-plan-store').value;
     if (!date || !storeId) return alert('出荷日と店舗を選択してください');
-    const key = date + '|||' + storeId;
-    // 既存チェック
-    const exists = App.planData.some(p => p.shipping_date === date && p.store_id === storeId);
-    if (!exists) {
-      // ダミーレコードとしてデータに追加（商品は全て 0）
-      App.planProducts.forEach(p => {
-        App.planData.push({ id:'', shipping_date:date, store_id:storeId, product_id:p.id, quantity:0 });
-      });
-    }
+    const exists = App.planData.some(p => p.shipping_date===date && p.store_id===storeId);
+    if (!exists) App.planProducts.forEach(p => { App.planData.push({ id:'', shipping_date:date, store_id:storeId, product_id:p.id, quantity:0 }); });
     closeModal();
     renderPlanMatrix(App.planData, App.planProducts, true);
   });
@@ -935,22 +874,13 @@ function addPlanRow() {
 
 async function savePlan() {
   if (!planEditPassword) return;
-  const inputs = qa('#plan-result input[type=number]');
-  const toSave = [];
-  const toDelete = [];
+  const inputs  = qa('#plan-result input[type=number]');
+  const toSave  = [], toDelete = [];
 
   inputs.forEach(inp => {
-    const qty   = Number(inp.value || 0);
-    const id    = inp.dataset.id || '';
-    const date  = inp.dataset.date;
-    const store = inp.dataset.store;
-    const prod  = inp.dataset.product;
-
-    if (qty > 0) {
-      toSave.push({ id, shipping_date:date, store_id:store, product_id:prod, quantity:qty });
-    } else if (id) {
-      toDelete.push(id);
-    }
+    const qty = Number(inp.value||0), id = inp.dataset.id||'';
+    if (qty > 0) toSave.push({ id, shipping_date:inp.dataset.date, store_id:inp.dataset.store, product_id:inp.dataset.product, quantity:qty });
+    else if (id) toDelete.push(id);
   });
 
   showMsg('msg-plan','保存中...');
@@ -958,8 +888,7 @@ async function savePlan() {
     if (toSave.length)   await gasCall('saveProductionPlanItems', toSave, planEditPassword);
     if (toDelete.length) await gasCall('deleteProductionPlanItems', toDelete, planEditPassword);
     showMsg('msg-plan','保存しました');
-    App.planEditMode = false;
-    planEditPassword = null;
+    App.planEditMode = false; planEditPassword = null;
     q('#plan-save-btn').style.display = 'none';
     q('#plan-add-row-btn').style.display = 'none';
     await loadPlan();
@@ -979,11 +908,8 @@ function importPlan() {
   if (!confirm('インポートすると現在の生産計画が上書きされます。\n必ず事前にエクスポートしてから実行してください。\n続けますか？')) return;
   openPwModal(async pw => {
     showMsg('msg-plan','インポート中...');
-    try {
-      const res = await gasCall('importProductionPlan', pw);
-      showMsg('msg-plan',`インポート完了（${res.count}件）`);
-      await loadPlan();
-    } catch(e) { showMsg('msg-plan','エラー: '+e.message, true); }
+    try { const res = await gasCall('importProductionPlan', pw); showMsg('msg-plan',`インポート完了（${res.count}件）`); await loadPlan(); }
+    catch(e) { showMsg('msg-plan','エラー: '+e.message, true); }
   });
 }
 
@@ -991,112 +917,83 @@ function importPlan() {
 // 発注管理
 // ================================================================
 async function loadOrderSummary() {
-  const start = q('#order-start').value;
-  const end   = q('#order-end').value;
+  const start = q('#order-start').value, end = q('#order-end').value;
   if (!start || !end) { showMsg('msg-order','期間を選択してください', true); return; }
-  setLoading('order-result','集計中...');
-  showMsg('msg-order','');
-  try {
-    const data = await gasCall('getOrderSummary', start, end);
-    renderOrderSummary(data, start, end);
-  } catch(e) { showMsg('msg-order','エラー: '+e.message, true); }
+  setLoading('order-result','集計中...'); showMsg('msg-order','');
+  try { renderOrderSummary(await gasCall('getOrderSummary', start, end), start, end); }
+  catch(e) { showMsg('msg-order','エラー: '+e.message, true); }
 }
 
 function renderOrderSummary(data, start, end) {
-  if (data.length === 0) {
-    q('#order-result').innerHTML = '<p style="color:#888;padding:12px">該当する原料消費はありません。</p>';
-    return;
-  }
+  if (!data.length) { q('#order-result').innerHTML = '<p style="color:#888;padding:12px">該当する原料消費はありません。</p>'; return; }
   let html = `<p style="margin-bottom:8px;font-size:13px">期間: ${fmtDateJp(start)} 〜 ${fmtDateJp(end)}</p>
-    <div class="tbl-wrap"><table>
-    <tr><th>原料名</th><th>仕入先</th><th>必要量</th><th>原価合計(円)</th></tr>`;
-  data.forEach(r => {
-    html += `<tr><td>${esc(r.ingredient_name)}</td><td>${esc(r.supplier)}</td>
-      <td>${fmtGrams(r.total_grams)}</td><td>${r.total_cost.toLocaleString()}</td></tr>`;
-  });
-  html += '</table></div>';
-  q('#order-result').innerHTML = html;
+    <div class="tbl-wrap"><table><tr><th>原料名</th><th>仕入先</th><th>必要量</th><th>原価合計(円)</th></tr>`;
+  data.forEach(r => { html += `<tr><td>${esc(r.ingredient_name)}</td><td>${esc(r.supplier)}</td><td>${fmtGrams(r.total_grams)}</td><td>${r.total_cost.toLocaleString()}</td></tr>`; });
+  q('#order-result').innerHTML = html + '</table></div>';
 }
 
 // ================================================================
 // 在庫管理
 // ================================================================
 async function loadInventory() {
-  setLoading('inventory-result','在庫を読込中...');
-  showMsg('msg-inv','');
-  try {
-    const data = await gasCall('getInventory');
-    renderInventory(data);
-  } catch(e) { showMsg('msg-inv','エラー: '+e.message, true); }
+  setLoading('inventory-result','在庫を読込中...'); showMsg('msg-inv','');
+  try { renderInventory(await gasCall('getInventory')); }
+  catch(e) { showMsg('msg-inv','エラー: '+e.message, true); }
 }
 
 function renderInventory(data) {
-  let html = `<div class="tbl-wrap"><table>
-    <tr><th>原料名</th><th>仕入先</th><th>在庫量</th><th>最終更新</th></tr>`;
+  let html = `<div class="tbl-wrap"><table><tr><th>原料名</th><th>仕入先</th><th>在庫量</th><th>最終更新</th></tr>`;
   data.forEach(r => {
-    html += `<tr>
-      <td>${esc(r.ingredient_name)}</td><td>${esc(r.supplier||'')}</td>
+    html += `<tr><td>${esc(r.ingredient_name)}</td><td>${esc(r.supplier||'')}</td>
       <td><input type="number" data-id="${r.ingredient_id}" step="0.1" value="${r.quantity}" style="width:100px"></td>
       <td>${r.last_updated}</td></tr>`;
   });
-  html += '</table></div>';
-  q('#inventory-result').innerHTML = html;
+  q('#inventory-result').innerHTML = html + '</table></div>';
 }
 
 async function saveInventory() {
   const inputs = qa('#inventory-result input[type=number]');
   showMsg('msg-inv','保存中...');
   try {
-    for (const inp of inputs) {
-      await gasCall('updateInventoryItem', inp.dataset.id, Number(inp.value));
-    }
+    for (const inp of inputs) await gasCall('updateInventoryItem', inp.dataset.id, Number(inp.value));
     showMsg('msg-inv','在庫を保存しました');
     await loadInventory();
   } catch(e) { showMsg('msg-inv','エラー: '+e.message, true); }
 }
 
 async function loadProjection() {
-  const start = q('#proj-start').value;
-  const end   = q('#proj-end').value;
+  const start = q('#proj-start').value, end = q('#proj-end').value;
   if (!start || !end) return;
   setLoading('projection-result','推移を計算中...');
-  try {
-    const data = await gasCall('getInventoryProjection', start, end);
-    renderProjection(data);
-  } catch(e) { q('#projection-result').innerHTML = '<p class="msg-err">エラー: '+esc(e.message)+'</p>'; }
+  try { renderProjection(await gasCall('getInventoryProjection', start, end)); }
+  catch(e) { q('#projection-result').innerHTML = '<p class="msg-err">エラー: '+esc(e.message)+'</p>'; }
 }
 
 function renderProjection(data) {
-  if (data.length === 0) { q('#projection-result').innerHTML = '<p style="color:#888">対象期間に作業はありません。</p>'; return; }
+  if (!data.length) { q('#projection-result').innerHTML = '<p style="color:#888">対象期間に作業はありません。</p>'; return; }
   let html = '<div class="tbl-wrap"><table><tr><th>作業日</th><th>原料名</th><th>消費量</th><th>消費前在庫</th><th>消費後在庫</th></tr>';
   data.forEach(day => {
     day.items.forEach(item => {
       html += `<tr class="${item.shortage?'shortage':''}">
         <td>${fmtDateJp(day.date)}</td><td>${esc(item.ingredient_name)}</td>
-        <td>${fmtGrams(item.consumption)}</td>
-        <td>${fmtGrams(item.stock_before)}</td>
-        <td class="${item.shortage?'shortage':''}">${fmtGrams(item.stock_after)}${item.shortage?' ⚠️不足':''}</td>
-      </tr>`;
+        <td>${fmtGrams(item.consumption)}</td><td>${fmtGrams(item.stock_before)}</td>
+        <td class="${item.shortage?'shortage':''}">${fmtGrams(item.stock_after)}${item.shortage?' ⚠️不足':''}</td></tr>`;
     });
   });
-  html += '</table></div>';
-  q('#projection-result').innerHTML = html;
+  q('#projection-result').innerHTML = html + '</table></div>';
 }
 
 // ================================================================
 // 原価確認
 // ================================================================
 async function loadCost() {
-  setLoading('cost-result','原価を計算中...');
-  showMsg('msg-cost','');
-  try {
-    const data = await gasCall('getCostByProduct');
-    renderCost(data);
-  } catch(e) { showMsg('msg-cost','エラー: '+e.message, true); }
+  setLoading('cost-result','原価を計算中...'); showMsg('msg-cost','');
+  try { renderCost(await gasCall('getCostByProduct')); }
+  catch(e) { showMsg('msg-cost','エラー: '+e.message, true); }
 }
 
 function renderCost(data) {
-  if (data.length === 0) { q('#cost-result').innerHTML = '<p style="color:#888">商品が登録されていません。</p>'; return; }
+  if (!data.length) { q('#cost-result').innerHTML = '<p style="color:#888">商品が登録されていません。</p>'; return; }
   let html = '';
   data.forEach(prod => {
     html += `<div class="work-card" style="margin-bottom:12px">
@@ -1105,9 +1002,7 @@ function renderCost(data) {
         <span class="sub">原価合計: <strong>${prod.total_cost.toLocaleString()} 円</strong></span>
       </div>
       <table style="width:100%"><tr><th>原料名</th><th>使用量(g)</th><th>原価(円/g)</th><th>金額(円)</th></tr>`;
-    prod.breakdown.forEach(b => {
-      html += `<tr><td>${esc(b.ingredient_name)}</td><td>${b.grams}</td><td>${b.unit_cost}</td><td>${b.cost.toLocaleString()}</td></tr>`;
-    });
+    prod.breakdown.forEach(b => { html += `<tr><td>${esc(b.ingredient_name)}</td><td>${b.grams}</td><td>${b.unit_cost}</td><td>${b.cost.toLocaleString()}</td></tr>`; });
     html += '</table></div>';
   });
   q('#cost-result').innerHTML = html;
@@ -1123,26 +1018,15 @@ function openPwModal(callback) {
   q('#pw-modal-overlay').classList.add('show');
   setTimeout(() => q('#pw-input').focus(), 100);
 }
-
-function closePwModal() {
-  q('#pw-modal-overlay').classList.remove('show');
-  App.pwCallback = null;
-}
-
-function closePwModalOnBg(e) {
-  if (e.target === q('#pw-modal-overlay')) closePwModal();
-}
+function closePwModal() { q('#pw-modal-overlay').classList.remove('show'); App.pwCallback = null; }
+function closePwModalOnBg(e) { if (e.target===q('#pw-modal-overlay')) closePwModal(); }
 
 async function confirmPassword() {
   const pw = q('#pw-input').value;
   try {
     const ok = await gasCall('verifyPassword', pw);
-    if (ok) {
-      closePwModal();
-      if (App.pwCallback) App.pwCallback(pw);
-    } else {
-      q('#pw-error').textContent = 'パスワードが正しくありません';
-    }
+    if (ok) { closePwModal(); if (App.pwCallback) App.pwCallback(pw); }
+    else q('#pw-error').textContent = 'パスワードが正しくありません';
   } catch(e) { q('#pw-error').textContent = 'エラー: ' + e.message; }
 }
 
@@ -1154,25 +1038,18 @@ let _modalOkFn = null;
 function showModal(title, body, onOk) {
   _modalOkFn = onOk;
   q('#modal-title').textContent = title;
-  q('#modal-body').innerHTML = body;
+  q('#modal-body').innerHTML    = body;
   q('#modal-ok').onclick = () => { if (_modalOkFn) _modalOkFn(); };
   q('#modal-overlay').classList.add('show');
 }
-
-function closeModal() {
-  q('#modal-overlay').classList.remove('show');
-  _modalOkFn = null;
-}
-
-function closeModalOnBg(e) {
-  if (e.target === q('#modal-overlay')) closeModal();
-}
+function closeModal() { q('#modal-overlay').classList.remove('show'); _modalOkFn = null; }
+function closeModalOnBg(e) { if (e.target===q('#modal-overlay')) closeModal(); }
 
 // ================================================================
 // XSSエスケープ
 // ================================================================
 function esc(s) {
-  if (s === null || s === undefined) return '';
+  if (s===null||s===undefined) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 </script>

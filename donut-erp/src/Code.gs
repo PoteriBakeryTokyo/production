@@ -26,12 +26,80 @@ const SHEET_HEADERS = {
   '生産計画_エクスポート':['id','shipping_date','store_id','product_id','quantity']
 };
 
-// ---- エントリポイント ----
+// ---- エントリポイント（API） ----
 
-function doGet() {
-  return HtmlService.createHtmlOutputFromFile('index')
-    .setTitle('ドーナツ工場ERP')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+function doGet(e) {
+  const action = e && e.parameter && e.parameter.action;
+  try {
+    switch (action) {
+      case 'getAllMasterData':
+        return respond({ status: 'ok', result: getAllMasterData() });
+      case 'getProductionPlan':
+        return respond({ status: 'ok', result: getProductionPlan(e.parameter.start, e.parameter.end) });
+      case 'getWorkSchedule':
+        return respond({ status: 'ok', result: getWorkSchedule(e.parameter.workDate) });
+      case 'getInventory':
+        return respond({ status: 'ok', result: getInventory() });
+      case 'getInventoryProjection':
+        return respond({ status: 'ok', result: getInventoryProjection(e.parameter.start, e.parameter.end) });
+      case 'getOrderSummary':
+        return respond({ status: 'ok', result: getOrderSummary(e.parameter.start, e.parameter.end) });
+      case 'getCostByProduct':
+        return respond({ status: 'ok', result: getCostByProduct() });
+      default:
+        return respond({ status: 'ok', message: 'API稼働中' });
+    }
+  } catch (err) {
+    return respond({ status: 'error', message: err.message });
+  }
+}
+
+function doPost(e) {
+  let raw = '';
+  if (e.parameter && e.parameter.payload) {
+    raw = e.parameter.payload;
+  } else if (e.postData && e.postData.contents) {
+    const match = e.postData.contents.match(/(?:^|&)payload=([^&]*)/);
+    raw = match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : e.postData.contents;
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch (err) {
+    return respond({ status: 'error', message: 'JSONパースエラー: ' + err.message });
+  }
+
+  const action = payload.action;
+  try {
+    switch (action) {
+      case 'saveIngredient':            return respond({ status: 'ok', result: saveIngredient(payload.data) });
+      case 'deleteIngredient':          return respond({ status: 'ok', result: deleteIngredient(payload.id) });
+      case 'saveStore':                 return respond({ status: 'ok', result: saveStore(payload.data) });
+      case 'deleteStore':               return respond({ status: 'ok', result: deleteStore(payload.id) });
+      case 'saveProduct':               return respond({ status: 'ok', result: saveProduct(payload.data) });
+      case 'deleteProduct':             return respond({ status: 'ok', result: deleteProduct(payload.id) });
+      case 'saveRecipe':                return respond({ status: 'ok', result: saveRecipe(payload.data) });
+      case 'deleteRecipe':              return respond({ status: 'ok', result: deleteRecipe(payload.id) });
+      case 'saveFixedRecipe':           return respond({ status: 'ok', result: saveFixedRecipe(payload.data) });
+      case 'deleteFixedRecipe':         return respond({ status: 'ok', result: deleteFixedRecipe(payload.id) });
+      case 'saveProductionPlanItems':   return respond({ status: 'ok', result: saveProductionPlanItems(payload.items, payload.password) });
+      case 'deleteProductionPlanItems': return respond({ status: 'ok', result: deleteProductionPlanItems(payload.ids, payload.password) });
+      case 'exportProductionPlan':      return respond({ status: 'ok', result: exportProductionPlan() });
+      case 'importProductionPlan':      return respond({ status: 'ok', result: importProductionPlan(payload.password) });
+      case 'updateInventoryItem':       return respond({ status: 'ok', result: updateInventoryItem(payload.ingredientId, payload.quantity) });
+      case 'verifyPassword':            return respond({ status: 'ok', result: verifyPassword(payload.password) });
+      default:
+        return respond({ status: 'error', message: '不明なaction: ' + action });
+    }
+  } catch (err) {
+    return respond({ status: 'error', message: err.message });
+  }
+}
+
+function respond(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 // ---- スプレッドシート管理 ----
