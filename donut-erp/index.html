@@ -311,14 +311,13 @@ td input[type=number],td input[type=text]{width:100%;border:1px solid #c9a87a;pa
 // ================================================================
 // GAS API 設定
 // ================================================================
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbxQxFtrOHXKl1uN7ua3p4Dz0uIINR87PSiPuo2AXpJc1gzk4uMYfieYbGBuXzne6mSM/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbwBGqTWzXvJy4hgKOmjhtYAi6pZVGUbj6IlyaAzwr7GtOcT2mH2T737A21CUVRyaKEV/exec';
 
 const GET_ACTIONS = new Set([
   'getAllMasterData', 'getProductionPlan', 'getWorkSchedule',
   'getInventory', 'getInventoryProjection', 'getOrderSummary', 'getCostByProduct'
 ]);
 
-// 旧 google.script.run 互換のシグネチャを fetch に変換
 async function gasCall(action, ...args) {
   const params = buildApiParams(action, args);
 
@@ -342,7 +341,6 @@ async function gasCall(action, ...args) {
 
 function buildApiParams(action, args) {
   switch (action) {
-    // GET
     case 'getAllMasterData':
     case 'getInventory':
     case 'getCostByProduct':
@@ -353,21 +351,18 @@ function buildApiParams(action, args) {
       return { start: args[0], end: args[1] };
     case 'getWorkSchedule':
       return { workDate: args[0] };
-    // POST - マスタ保存
     case 'saveIngredient':
     case 'saveStore':
     case 'saveProduct':
     case 'saveRecipe':
     case 'saveFixedRecipe':
       return { data: args[0] };
-    // POST - マスタ削除
     case 'deleteIngredient':
     case 'deleteStore':
     case 'deleteProduct':
     case 'deleteRecipe':
     case 'deleteFixedRecipe':
       return { id: args[0] };
-    // POST - 生産計画
     case 'saveProductionPlanItems':
       return { items: args[0], password: args[1] };
     case 'deleteProductionPlanItems':
@@ -376,10 +371,8 @@ function buildApiParams(action, args) {
       return {};
     case 'importProductionPlan':
       return { password: args[0] };
-    // POST - 在庫
     case 'updateInventoryItem':
       return { ingredientId: args[0], quantity: args[1] };
-    // POST - 認証
     case 'verifyPassword':
       return { password: args[0] };
     default:
