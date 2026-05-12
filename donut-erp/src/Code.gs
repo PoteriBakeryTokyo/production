@@ -2,7 +2,7 @@
 // ドーナツ工場ERP - Code.gs（エントリポイント・共通ユーティリティ）
 // ============================================================
 
-const ADMIN_PASSWORD = 'donut2024';
+const ADMIN_PASSWORD = 'Poteri1235';
 
 const SHEET_NAMES = {
   INGREDIENTS:     '原料マスタ',
