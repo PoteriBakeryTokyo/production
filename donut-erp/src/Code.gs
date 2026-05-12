@@ -239,3 +239,10 @@ function getSpreadsheetUrl() {
   const ssId = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
   return ssId ? 'https://docs.google.com/spreadsheets/d/' + ssId : null;
 }
+
+// ---- スプレッドシートID設定（初回1回だけ実行） ----
+
+function setupSpreadsheetId() {
+  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', '1n8DTO3G4OL3jkMGV85_PGB2E0UcRXQTrvdYryU5-r7c');
+  Logger.log('SPREADSHEET_ID を設定しました: 1n8DTO3G4OL3jkMGV85_PGB2E0UcRXQTrvdYryU5-r7c');
+}
