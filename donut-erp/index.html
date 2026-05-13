@@ -875,7 +875,7 @@ function addPlanRow() {
 }
 
 async function savePlan() {
-  if (!planEditPassword) return;
+  if (!planEditPassword) { showMsg('msg-plan','編集モードが無効です。再度「編集」ボタンを押してください', true); return; }
   const inputs  = qa('#plan-result input[type=number]');
   const toSave  = [], toDelete = [];
 
@@ -885,15 +885,20 @@ async function savePlan() {
     else if (id) toDelete.push(id);
   });
 
+  if (!toSave.length && !toDelete.length) {
+    showMsg('msg-plan','保存する変更がありません（数量を入力してください）', true);
+    return;
+  }
+
   showMsg('msg-plan','保存中...');
   try {
     if (toSave.length)   await gasCall('saveProductionPlanItems', toSave, planEditPassword);
     if (toDelete.length) await gasCall('deleteProductionPlanItems', toDelete, planEditPassword);
-    showMsg('msg-plan','保存しました');
     App.planEditMode = false; planEditPassword = null;
     q('#plan-save-btn').style.display = 'none';
     q('#plan-add-row-btn').style.display = 'none';
     await loadPlan();
+    showMsg('msg-plan','保存しました');
   } catch(e) { showMsg('msg-plan','エラー: '+e.message, true); }
 }
 
