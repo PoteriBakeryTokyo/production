@@ -246,3 +246,33 @@ function setupSpreadsheetId() {
   PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', '1n8DTO3G4OL3jkMGV85_PGB2E0UcRXQTrvdYryU5-r7c');
   Logger.log('SPREADSHEET_ID を設定しました: 1n8DTO3G4OL3jkMGV85_PGB2E0UcRXQTrvdYryU5-r7c');
 }
+
+// ---- ID欠損修正（手動入力データのid列が空の場合に1回実行） ----
+
+function fixMissingIds() {
+  const targets = [
+    SHEET_NAMES.INGREDIENTS,
+    SHEET_NAMES.STORES,
+    SHEET_NAMES.PRODUCTS,
+    SHEET_NAMES.RECIPES,
+    SHEET_NAMES.FIXED_RECIPES,
+    SHEET_NAMES.PRODUCTION_PLAN
+  ];
+  targets.forEach(name => {
+    const sheet = getSheet_(name);
+    const lr = sheet.getLastRow();
+    if (lr <= 1) return;
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const idCol = headers.indexOf('id') + 1;
+    if (idCol === 0) return;
+    let fixed = 0;
+    for (let r = 2; r <= lr; r++) {
+      const cell = sheet.getRange(r, idCol);
+      if (!cell.getValue()) {
+        cell.setValue(Utilities.getUuid());
+        fixed++;
+      }
+    }
+    Logger.log(name + ': ' + fixed + '件のIDを補完しました');
+  });
+}
