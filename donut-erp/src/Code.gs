@@ -104,17 +104,21 @@ function respond(obj) {
 
 // ---- スプレッドシート管理 ----
 
+let _cachedSs_ = null;
+
 function getSpreadsheet_() {
+  if (_cachedSs_) return _cachedSs_;
   const props = PropertiesService.getScriptProperties();
   let ssId = props.getProperty('SPREADSHEET_ID');
   if (!ssId) {
-    const ss = SpreadsheetApp.create('ドーナツ工場ERP データ');
-    ssId = ss.getId();
+    _cachedSs_ = SpreadsheetApp.create('ドーナツ工場ERP データ');
+    ssId = _cachedSs_.getId();
     props.setProperty('SPREADSHEET_ID', ssId);
-    initAllSheets_(ss);
-    return ss;
+    initAllSheets_(_cachedSs_);
+    return _cachedSs_;
   }
-  return SpreadsheetApp.openById(ssId);
+  _cachedSs_ = SpreadsheetApp.openById(ssId);
+  return _cachedSs_;
 }
 
 function getSheet_(name) {

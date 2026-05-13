@@ -2,6 +2,13 @@
 // Masters.gs - マスタデータ CRUD
 // ============================================================
 
+const MASTER_CACHE_KEY = 'allMasterData';
+const MASTER_CACHE_TTL = 300; // 5分
+
+function invalidateMasterCache_() {
+  CacheService.getScriptCache().remove(MASTER_CACHE_KEY);
+}
+
 // ---- 原料マスタ ----
 
 function getIngredients() {
@@ -10,6 +17,7 @@ function getIngredients() {
 }
 
 function saveIngredient(data) {
+  invalidateMasterCache_();
   const sheet = getSheet_(SHEET_NAMES.INGREDIENTS);
   const all = sheetToObjects_(sheet);
   if (data.id) {
@@ -24,6 +32,7 @@ function saveIngredient(data) {
 }
 
 function deleteIngredient(id) {
+  invalidateMasterCache_();
   const sheet = getSheet_(SHEET_NAMES.INGREDIENTS);
   objectsToSheet_(sheet, sheetToObjects_(sheet).filter(r => r.id !== id));
 }
@@ -36,6 +45,7 @@ function getStores() {
 }
 
 function saveStore(data) {
+  invalidateMasterCache_();
   const sheet = getSheet_(SHEET_NAMES.STORES);
   const all = sheetToObjects_(sheet);
   if (data.id) {
@@ -50,6 +60,7 @@ function saveStore(data) {
 }
 
 function deleteStore(id) {
+  invalidateMasterCache_();
   const sheet = getSheet_(SHEET_NAMES.STORES);
   objectsToSheet_(sheet, sheetToObjects_(sheet).filter(r => r.id !== id));
 }
@@ -62,6 +73,7 @@ function getProducts() {
 }
 
 function saveProduct(data) {
+  invalidateMasterCache_();
   const sheet = getSheet_(SHEET_NAMES.PRODUCTS);
   const all = sheetToObjects_(sheet);
   if (data.id) {
@@ -76,6 +88,7 @@ function saveProduct(data) {
 }
 
 function deleteProduct(id) {
+  invalidateMasterCache_();
   const sheet = getSheet_(SHEET_NAMES.PRODUCTS);
   objectsToSheet_(sheet, sheetToObjects_(sheet).filter(r => r.id !== id));
 }
@@ -87,6 +100,7 @@ function getRecipes() {
 }
 
 function saveRecipe(data) {
+  invalidateMasterCache_();
   const sheet = getSheet_(SHEET_NAMES.RECIPES);
   const all = sheetToObjects_(sheet);
   if (data.id) {
@@ -101,6 +115,7 @@ function saveRecipe(data) {
 }
 
 function deleteRecipe(id) {
+  invalidateMasterCache_();
   const sheet = getSheet_(SHEET_NAMES.RECIPES);
   objectsToSheet_(sheet, sheetToObjects_(sheet).filter(r => r.id !== id));
 }
@@ -112,6 +127,7 @@ function getFixedRecipes() {
 }
 
 function saveFixedRecipe(data) {
+  invalidateMasterCache_();
   const sheet = getSheet_(SHEET_NAMES.FIXED_RECIPES);
   const all = sheetToObjects_(sheet);
   if (data.id) {
@@ -126,6 +142,7 @@ function saveFixedRecipe(data) {
 }
 
 function deleteFixedRecipe(id) {
+  invalidateMasterCache_();
   const sheet = getSheet_(SHEET_NAMES.FIXED_RECIPES);
   objectsToSheet_(sheet, sheetToObjects_(sheet).filter(r => r.id !== id));
 }
@@ -133,13 +150,18 @@ function deleteFixedRecipe(id) {
 // ---- 一括取得（画面初期ロード用） ----
 
 function getAllMasterData() {
-  return {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get(MASTER_CACHE_KEY);
+  if (cached) return JSON.parse(cached);
+  const data = {
     ingredients: getIngredients(),
     stores:       getStores(),
     products:     getProducts(),
     recipes:      getRecipes(),
     fixedRecipes: getFixedRecipes()
   };
+  try { cache.put(MASTER_CACHE_KEY, JSON.stringify(data), MASTER_CACHE_TTL); } catch(e) {}
+  return data;
 }
 
 // ---- 原価計算 ----
