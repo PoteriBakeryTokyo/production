@@ -1027,7 +1027,7 @@ async function confirmPassword() {
   const pw = q('#pw-input').value;
   try {
     const ok = await gasCall('verifyPassword', pw);
-    if (ok) { closePwModal(); if (App.pwCallback) App.pwCallback(pw); }
+    if (ok) { const cb = App.pwCallback; closePwModal(); if (cb) cb(pw); }
     else q('#pw-error').textContent = 'パスワードが正しくありません';
   } catch(e) { q('#pw-error').textContent = 'エラー: ' + e.message; }
 }
