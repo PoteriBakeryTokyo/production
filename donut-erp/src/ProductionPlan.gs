@@ -3,12 +3,19 @@
 // ============================================================
 
 function getProductionPlan(startDate, endDate) {
-  const all = sheetToObjects_(getSheet_(SHEET_NAMES.PRODUCTION_PLAN));
+  const all  = sheetToObjects_(getSheet_(SHEET_NAMES.PRODUCTION_PLAN));
+  const maps = buildNameMaps_();
   return all.filter(p => {
     if (!p.shipping_date) return false;
     const d = String(p.shipping_date);
     return (!startDate || d >= startDate) && (!endDate || d <= endDate);
-  });
+  }).map(p => ({
+    id:           p.id,
+    shipping_date: String(p.shipping_date),
+    store_id:     maps.storeByName[p.store_name]?.id  || p.store_name,
+    product_id:   maps.prodByName[p.product_name]?.id || p.product_name,
+    quantity:     p.quantity
+  }));
 }
 
 // items: [{id?, shipping_date, store_id, product_id, quantity}, ...]
@@ -17,12 +24,20 @@ function saveProductionPlanItems(items, password) {
   if (!verifyPassword(password)) throw new Error('パスワードが正しくありません');
 
   const sheet = getSheet_(SHEET_NAMES.PRODUCTION_PLAN);
+  const maps  = buildNameMaps_();
   const all   = sheetToObjects_(sheet);
 
   items.forEach(item => {
     if (!item.id) item.id = generateId_();
+    const toStore = {
+      id:           item.id,
+      shipping_date: item.shipping_date,
+      store_name:   maps.storeById[item.store_id]?.name  || item.store_id,
+      product_name: maps.prodById[item.product_id]?.name || item.product_id,
+      quantity:     item.quantity
+    };
     const idx = all.findIndex(p => p.id === item.id);
-    if (idx >= 0) all[idx] = item; else all.push(item);
+    if (idx >= 0) all[idx] = toStore; else all.push(toStore);
   });
 
   objectsToSheet_(sheet, all.filter(p => p.id));

@@ -2,7 +2,7 @@
 // ドーナツ工場ERP - Code.gs（エントリポイント・共通ユーティリティ）
 // ============================================================
 
-const ADMIN_PASSWORD = 'donut2024';
+const ADMIN_PASSWORD = 'Poteri1235';
 
 const SHEET_NAMES = {
   INGREDIENTS:     '原料マスタ',
@@ -19,11 +19,11 @@ const SHEET_HEADERS = {
   '原料マスタ':          ['id','name','supplier','unit_cost','display_order'],
   '店舗マスタ':          ['id','name','display_order'],
   '商品マスタ':          ['id','name','type','fixed_display','display_order'],
-  'レシピマスタ':        ['id','parent_id','child_id','child_type','weight','work_days_before','display_order'],
-  '固定レシピ':          ['id','item_id','child_id','child_type','weight','display_order'],
-  '生産計画':            ['id','shipping_date','store_id','product_id','quantity'],
-  '在庫':                ['ingredient_id','quantity','last_updated'],
-  '生産計画_エクスポート':['id','shipping_date','store_id','product_id','quantity']
+  'レシピマスタ':        ['id','parent_name','child_name','child_type','weight','work_days_before','display_order'],
+  '固定レシピ':          ['id','item_name','child_name','child_type','weight','display_order'],
+  '生産計画':            ['id','shipping_date','store_name','product_name','quantity'],
+  '在庫':                ['ingredient_name','quantity','last_updated'],
+  '生産計画_エクスポート':['id','shipping_date','store_name','product_name','quantity']
 };
 
 // ---- エントリポイント（API） ----
@@ -104,17 +104,21 @@ function respond(obj) {
 
 // ---- スプレッドシート管理 ----
 
+let _cachedSs_ = null;
+
 function getSpreadsheet_() {
+  if (_cachedSs_) return _cachedSs_;
   const props = PropertiesService.getScriptProperties();
   let ssId = props.getProperty('SPREADSHEET_ID');
   if (!ssId) {
-    const ss = SpreadsheetApp.create('ドーナツ工場ERP データ');
-    ssId = ss.getId();
+    _cachedSs_ = SpreadsheetApp.create('ドーナツ工場ERP データ');
+    ssId = _cachedSs_.getId();
     props.setProperty('SPREADSHEET_ID', ssId);
-    initAllSheets_(ss);
-    return ss;
+    initAllSheets_(_cachedSs_);
+    return _cachedSs_;
   }
-  return SpreadsheetApp.openById(ssId);
+  _cachedSs_ = SpreadsheetApp.openById(ssId);
+  return _cachedSs_;
 }
 
 function getSheet_(name) {
@@ -233,9 +237,125 @@ function collectIngredientConsumption_(itemId, isProduct, productQty, neededGram
   });
 }
 
+// ---- 名称マップ構築（名前↔IDの双方向変換用） ----
+
+function buildNameMaps_() {
+  const products    = getProducts();
+  const ingredients = getIngredients();
+  const stores      = getStores();
+  const prodById = {}, prodByName = {};
+  products.forEach(p => { prodById[p.id] = p; prodByName[p.name] = p; });
+  const ingById = {}, ingByName = {};
+  ingredients.forEach(i => { ingById[i.id] = i; ingByName[i.name] = i; });
+  const storeById = {}, storeByName = {};
+  stores.forEach(s => { storeById[s.id] = s; storeByName[s.name] = s; });
+  return { prodById, prodByName, ingById, ingByName, storeById, storeByName };
+}
+
 // ---- スプレッドシートURL取得 ----
 
 function getSpreadsheetUrl() {
   const ssId = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
   return ssId ? 'https://docs.google.com/spreadsheets/d/' + ssId : null;
+}
+
+// ---- スプレッドシートID設定（初回1回だけ実行） ----
+
+function setupSpreadsheetId() {
+  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', '1n8DTO3G4OL3jkMGV85_PGB2E0UcRXQTrvdYryU5-r7c');
+  Logger.log('SPREADSHEET_ID を設定しました: 1n8DTO3G4OL3jkMGV85_PGB2E0UcRXQTrvdYryU5-r7c');
+}
+
+// ---- 名称ベース移行（スプシのIDカラムを名称カラムへ1回だけ実行） ----
+
+function migrateToNameBased() {
+  const maps = buildNameMaps_();
+  const prodName  = id => maps.prodById[String(id)]?.name  || String(id);
+  const ingName   = id => maps.ingById[String(id)]?.name   || String(id);
+  const storeName = id => maps.storeById[String(id)]?.name || String(id);
+
+  function migrateSheet_(sheet, oldIdFields, newNameFields, resolvers) {
+    const lr = sheet.getLastRow();
+    if (lr <= 1) { Logger.log(sheet.getName() + ': データなし'); return; }
+    const raw = sheet.getRange(1, 1, lr, sheet.getLastColumn()).getValues();
+    const oldHeaders = raw[0].map(String);
+    if (!oldIdFields.some(f => oldHeaders.includes(f))) {
+      Logger.log(sheet.getName() + ': 既に移行済み'); return;
+    }
+    const newHeaders = SHEET_HEADERS[sheet.getName()];
+    const converted = raw.slice(1).filter(r => r.some(c => c !== '')).map(row => {
+      const obj = {};
+      oldHeaders.forEach((h, i) => {
+        const v = row[i];
+        obj[h] = v instanceof Date ? Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd') : (v === null ? '' : v);
+      });
+      return newHeaders.map(h => {
+        if (resolvers[h]) return resolvers[h](obj);
+        return obj[h] !== undefined ? obj[h] : '';
+      });
+    });
+    sheet.clearContents();
+    sheet.appendRow(newHeaders);
+    sheet.getRange(1, 1, 1, newHeaders.length).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    if (converted.length > 0) sheet.getRange(2, 1, converted.length, newHeaders.length).setValues(converted);
+    Logger.log(sheet.getName() + ': ' + converted.length + '件移行完了');
+  }
+
+  migrateSheet_(getSheet_(SHEET_NAMES.RECIPES), ['parent_id','child_id'], ['parent_name','child_name'], {
+    parent_name: o => prodName(o.parent_id || ''),
+    child_name:  o => o.child_type === '原料' ? ingName(o.child_id || '') : prodName(o.child_id || '')
+  });
+
+  migrateSheet_(getSheet_(SHEET_NAMES.FIXED_RECIPES), ['item_id','child_id'], ['item_name','child_name'], {
+    item_name:  o => prodName(o.item_id || ''),
+    child_name: o => o.child_type === '原料' ? ingName(o.child_id || '') : prodName(o.child_id || '')
+  });
+
+  migrateSheet_(getSheet_(SHEET_NAMES.PRODUCTION_PLAN), ['store_id','product_id'], ['store_name','product_name'], {
+    store_name:   o => storeName(o.store_id || ''),
+    product_name: o => prodName(o.product_id || '')
+  });
+
+  migrateSheet_(getSheet_(SHEET_NAMES.INVENTORY), ['ingredient_id'], ['ingredient_name'], {
+    ingredient_name: o => ingName(o.ingredient_id || '')
+  });
+
+  migrateSheet_(getSheet_(SHEET_NAMES.EXPORT), ['store_id','product_id'], ['store_name','product_name'], {
+    store_name:   o => storeName(o.store_id || ''),
+    product_name: o => prodName(o.product_id || '')
+  });
+
+  invalidateMasterCache_();
+  Logger.log('migrateToNameBased 完了');
+}
+
+// ---- ID欠損修正（手動入力データのid列が空の場合に1回実行） ----
+
+function fixMissingIds() {
+  const targets = [
+    SHEET_NAMES.INGREDIENTS,
+    SHEET_NAMES.STORES,
+    SHEET_NAMES.PRODUCTS,
+    SHEET_NAMES.RECIPES,
+    SHEET_NAMES.FIXED_RECIPES,
+    SHEET_NAMES.PRODUCTION_PLAN
+  ];
+  targets.forEach(name => {
+    const sheet = getSheet_(name);
+    const lr = sheet.getLastRow();
+    if (lr <= 1) return;
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const idCol = headers.indexOf('id') + 1;
+    if (idCol === 0) return;
+    let fixed = 0;
+    for (let r = 2; r <= lr; r++) {
+      const cell = sheet.getRange(r, idCol);
+      if (!cell.getValue()) {
+        cell.setValue(Utilities.getUuid());
+        fixed++;
+      }
+    }
+    Logger.log(name + ': ' + fixed + '件のIDを補完しました');
+  });
 }
