@@ -821,9 +821,16 @@ function renderPlanMatrix(planData, products, editable) {
   const dataMap = {};
   planData.forEach(p => { dataMap[p.shipping_date+'|'+p.store_id+'|'+p.product_id] = p; });
 
-  const pairs    = [...pairSet].sort();
   const storeMap = {};
-  App.masters.stores.forEach(s => { storeMap[s.id] = s.name; });
+  const storeOrderMap = {};
+  App.masters.stores.forEach(s => { storeMap[s.id] = s.name; storeOrderMap[s.id] = Number(s.display_order || 0); });
+
+  const pairs = [...pairSet].sort((a, b) => {
+    const [dateA, storeA] = a.split('|||');
+    const [dateB, storeB] = b.split('|||');
+    if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+    return (storeOrderMap[storeA] || 0) - (storeOrderMap[storeB] || 0);
+  });
 
   let html = editable ? `<div class="edit-mode-notice">✏️ 編集モード有効 — 数量を編集後「保存」を押してください</div>` : '';
   html += `<div class="tbl-wrap"><table class="plan-matrix"><thead><tr><th>出荷日</th><th>店舗</th>`;
