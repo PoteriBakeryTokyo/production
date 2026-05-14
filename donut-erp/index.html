@@ -311,14 +311,13 @@ td input[type=number],td input[type=text]{width:100%;border:1px solid #c9a87a;pa
 // ================================================================
 // GAS API 設定
 // ================================================================
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbxQxFtrOHXKl1uN7ua3p4Dz0uIINR87PSiPuo2AXpJc1gzk4uMYfieYbGBuXzne6mSM/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbw8UVbYjBo1ouXXV-LQb8wqGgrYxF5-dApjkUZV6qxert4KnHJQNLQGq9CGW_JZm9P8/exec';
 
 const GET_ACTIONS = new Set([
   'getAllMasterData', 'getProductionPlan', 'getWorkSchedule',
   'getInventory', 'getInventoryProjection', 'getOrderSummary', 'getCostByProduct'
 ]);
 
-// 旧 google.script.run 互換のシグネチャを fetch に変換
 async function gasCall(action, ...args) {
   const params = buildApiParams(action, args);
 
@@ -342,7 +341,6 @@ async function gasCall(action, ...args) {
 
 function buildApiParams(action, args) {
   switch (action) {
-    // GET
     case 'getAllMasterData':
     case 'getInventory':
     case 'getCostByProduct':
@@ -353,21 +351,18 @@ function buildApiParams(action, args) {
       return { start: args[0], end: args[1] };
     case 'getWorkSchedule':
       return { workDate: args[0] };
-    // POST - マスタ保存
     case 'saveIngredient':
     case 'saveStore':
     case 'saveProduct':
     case 'saveRecipe':
     case 'saveFixedRecipe':
       return { data: args[0] };
-    // POST - マスタ削除
     case 'deleteIngredient':
     case 'deleteStore':
     case 'deleteProduct':
     case 'deleteRecipe':
     case 'deleteFixedRecipe':
       return { id: args[0] };
-    // POST - 生産計画
     case 'saveProductionPlanItems':
       return { items: args[0], password: args[1] };
     case 'deleteProductionPlanItems':
@@ -376,10 +371,8 @@ function buildApiParams(action, args) {
       return {};
     case 'importProductionPlan':
       return { password: args[0] };
-    // POST - 在庫
     case 'updateInventoryItem':
       return { ingredientId: args[0], quantity: args[1] };
-    // POST - 認証
     case 'verifyPassword':
       return { password: args[0] };
     default:
@@ -470,6 +463,15 @@ function showSubtab(name) {
 // ================================================================
 // マスタ管理
 // ================================================================
+function upsertLocal_(key, item) {
+  const arr = App.masters[key];
+  const idx = arr.findIndex(r => r.id === item.id);
+  if (idx >= 0) arr[idx] = item; else arr.push(item);
+}
+function deleteLocal_(key, id) {
+  App.masters[key] = App.masters[key].filter(r => r.id !== id);
+}
+
 async function loadMasters() {
   try {
     const data = await gasCall('getAllMasterData');
@@ -506,14 +508,14 @@ function openIngredientModal(data={}) {
   `, async () => {
     const obj = { id:data.id||'', name:q('#f-ing-name').value.trim(), supplier:q('#f-ing-supplier').value.trim(), unit_cost:q('#f-ing-cost').value, display_order:q('#f-ing-order').value };
     if (!obj.name) return alert('原料名を入力してください');
-    try { await gasCall('saveIngredient', obj); closeModal(); showMsg('msg-m-ing','保存しました'); await loadMasters(); }
+    try { const saved = await gasCall('saveIngredient', obj); closeModal(); showMsg('msg-m-ing','保存しました'); upsertLocal_('ingredients', saved); renderIngredientList(); }
     catch(e) { showMsg('msg-m-ing','エラー: '+e.message, true); }
   });
 }
 
 async function deleteIngredient(id) {
   if (!confirm('削除しますか？')) return;
-  try { await gasCall('deleteIngredient', id); showMsg('msg-m-ing','削除しました'); await loadMasters(); }
+  try { await gasCall('deleteIngredient', id); showMsg('msg-m-ing','削除しました'); deleteLocal_('ingredients', id); renderIngredientList(); }
   catch(e) { showMsg('msg-m-ing','エラー: '+e.message, true); }
 }
 
@@ -537,14 +539,14 @@ function openStoreModal(data={}) {
   `, async () => {
     const obj = { id:data.id||'', name:q('#f-store-name').value.trim(), display_order:q('#f-store-order').value };
     if (!obj.name) return alert('店舗名を入力してください');
-    try { await gasCall('saveStore', obj); closeModal(); showMsg('msg-m-store','保存しました'); await loadMasters(); }
+    try { const saved = await gasCall('saveStore', obj); closeModal(); showMsg('msg-m-store','保存しました'); upsertLocal_('stores', saved); renderStoreList(); }
     catch(e) { showMsg('msg-m-store','エラー: '+e.message, true); }
   });
 }
 
 async function deleteStore(id) {
   if (!confirm('削除しますか？')) return;
-  try { await gasCall('deleteStore', id); showMsg('msg-m-store','削除しました'); await loadMasters(); }
+  try { await gasCall('deleteStore', id); showMsg('msg-m-store','削除しました'); deleteLocal_('stores', id); renderStoreList(); }
   catch(e) { showMsg('msg-m-store','エラー: '+e.message, true); }
 }
 
@@ -578,14 +580,14 @@ function openProductModal(data={}) {
   `, async () => {
     const obj = { id:data.id||'', name:q('#f-prod-name').value.trim(), type:q('#f-prod-type').value, fixed_display:q('#f-prod-fixed').value, display_order:q('#f-prod-order').value };
     if (!obj.name) return alert('名称を入力してください');
-    try { await gasCall('saveProduct', obj); closeModal(); showMsg('msg-m-prod','保存しました'); await loadMasters(); }
+    try { const saved = await gasCall('saveProduct', obj); closeModal(); showMsg('msg-m-prod','保存しました'); upsertLocal_('products', saved); renderProductList(); }
     catch(e) { showMsg('msg-m-prod','エラー: '+e.message, true); }
   });
 }
 
 async function deleteProduct(id) {
   if (!confirm('削除しますか？')) return;
-  try { await gasCall('deleteProduct', id); showMsg('msg-m-prod','削除しました'); await loadMasters(); }
+  try { await gasCall('deleteProduct', id); showMsg('msg-m-prod','削除しました'); deleteLocal_('products', id); renderProductList(); }
   catch(e) { showMsg('msg-m-prod','エラー: '+e.message, true); }
 }
 
@@ -661,7 +663,7 @@ function openRecipeModal(data={}) {
     const resolvedType = isProd ? (isProd.type==='商品'?'半製品':isProd.type) : '原料';
     const obj = { id:data.id||'', parent_id:q('#f-rec-parent').value, child_id:childId, child_type:resolvedType, weight:q('#f-rec-weight').value, work_days_before:q('#f-rec-days').value, display_order:q('#f-rec-order').value };
     if (!obj.parent_id || !obj.child_id) return alert('親・子を選択してください');
-    try { await gasCall('saveRecipe', obj); closeModal(); showMsg('msg-m-recipe','保存しました'); await loadMasters(); }
+    try { const saved = await gasCall('saveRecipe', obj); closeModal(); showMsg('msg-m-recipe','保存しました'); upsertLocal_('recipes', saved); renderRecipeList(); }
     catch(e) { showMsg('msg-m-recipe','エラー: '+e.message, true); }
   });
 }
@@ -672,7 +674,7 @@ function updateChildSelect() {
 
 async function deleteRecipe(id) {
   if (!confirm('削除しますか？')) return;
-  try { await gasCall('deleteRecipe', id); showMsg('msg-m-recipe','削除しました'); await loadMasters(); }
+  try { await gasCall('deleteRecipe', id); showMsg('msg-m-recipe','削除しました'); deleteLocal_('recipes', id); renderRecipeList(); }
   catch(e) { showMsg('msg-m-recipe','エラー: '+e.message, true); }
 }
 
@@ -719,14 +721,14 @@ function openFixedRecipeModal(data={}) {
   `, async () => {
     const obj = { id:data.id||'', item_id:q('#f-fx-item').value, child_id:q('#f-fx-child').value, child_type:q('#f-fx-ctype').value, weight:q('#f-fx-weight').value, display_order:q('#f-fx-order').value };
     if (!obj.item_id || !obj.child_id) return alert('半製品と子を選択してください');
-    try { await gasCall('saveFixedRecipe', obj); closeModal(); showMsg('msg-m-fixed','保存しました'); await loadMasters(); }
+    try { const saved = await gasCall('saveFixedRecipe', obj); closeModal(); showMsg('msg-m-fixed','保存しました'); upsertLocal_('fixedRecipes', saved); renderFixedRecipeList(); }
     catch(e) { showMsg('msg-m-fixed','エラー: '+e.message, true); }
   });
 }
 
 async function deleteFixedRecipe(id) {
   if (!confirm('削除しますか？')) return;
-  try { await gasCall('deleteFixedRecipe', id); showMsg('msg-m-fixed','削除しました'); await loadMasters(); }
+  try { await gasCall('deleteFixedRecipe', id); showMsg('msg-m-fixed','削除しました'); deleteLocal_('fixedRecipes', id); renderFixedRecipeList(); }
   catch(e) { showMsg('msg-m-fixed','エラー: '+e.message, true); }
 }
 
@@ -819,9 +821,16 @@ function renderPlanMatrix(planData, products, editable) {
   const dataMap = {};
   planData.forEach(p => { dataMap[p.shipping_date+'|'+p.store_id+'|'+p.product_id] = p; });
 
-  const pairs    = [...pairSet].sort();
   const storeMap = {};
-  App.masters.stores.forEach(s => { storeMap[s.id] = s.name; });
+  const storeOrderMap = {};
+  App.masters.stores.forEach(s => { storeMap[s.id] = s.name; storeOrderMap[s.id] = Number(s.display_order || 0); });
+
+  const pairs = [...pairSet].sort((a, b) => {
+    const [dateA, storeA] = a.split('|||');
+    const [dateB, storeB] = b.split('|||');
+    if (dateA !== dateB) return dateA < dateB ? -1 : 1;
+    return (storeOrderMap[storeA] || 0) - (storeOrderMap[storeB] || 0);
+  });
 
   let html = editable ? `<div class="edit-mode-notice">✏️ 編集モード有効 — 数量を編集後「保存」を押してください</div>` : '';
   html += `<div class="tbl-wrap"><table class="plan-matrix"><thead><tr><th>出荷日</th><th>店舗</th>`;
@@ -873,7 +882,7 @@ function addPlanRow() {
 }
 
 async function savePlan() {
-  if (!planEditPassword) return;
+  if (!planEditPassword) { showMsg('msg-plan','編集モードが無効です。再度「編集」ボタンを押してください', true); return; }
   const inputs  = qa('#plan-result input[type=number]');
   const toSave  = [], toDelete = [];
 
@@ -883,15 +892,20 @@ async function savePlan() {
     else if (id) toDelete.push(id);
   });
 
+  if (!toSave.length && !toDelete.length) {
+    showMsg('msg-plan','保存する変更がありません（数量を入力してください）', true);
+    return;
+  }
+
   showMsg('msg-plan','保存中...');
   try {
     if (toSave.length)   await gasCall('saveProductionPlanItems', toSave, planEditPassword);
     if (toDelete.length) await gasCall('deleteProductionPlanItems', toDelete, planEditPassword);
-    showMsg('msg-plan','保存しました');
     App.planEditMode = false; planEditPassword = null;
     q('#plan-save-btn').style.display = 'none';
     q('#plan-add-row-btn').style.display = 'none';
     await loadPlan();
+    showMsg('msg-plan','保存しました');
   } catch(e) { showMsg('msg-plan','エラー: '+e.message, true); }
 }
 
