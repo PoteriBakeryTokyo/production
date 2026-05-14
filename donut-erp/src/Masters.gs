@@ -96,20 +96,43 @@ function deleteProduct(id) {
 // ---- レシピマスタ ----
 
 function getRecipes() {
-  return sheetToObjects_(getSheet_(SHEET_NAMES.RECIPES));
+  const rows = sheetToObjects_(getSheet_(SHEET_NAMES.RECIPES));
+  const maps = buildNameMaps_();
+  return rows.map(r => {
+    const childProd = maps.prodByName[r.child_name];
+    const childIng  = maps.ingByName[r.child_name];
+    const child     = r.child_type === '原料' ? childIng : childProd;
+    return {
+      id:               r.id,
+      parent_id:        maps.prodByName[r.parent_name]?.id || r.parent_name,
+      child_id:         child?.id || r.child_name,
+      child_type:       r.child_type,
+      weight:           r.weight,
+      work_days_before: r.work_days_before,
+      display_order:    r.display_order
+    };
+  });
 }
 
 function saveRecipe(data) {
   invalidateMasterCache_();
   const sheet = getSheet_(SHEET_NAMES.RECIPES);
+  const maps  = buildNameMaps_();
+  if (!data.id) data.id = generateId_();
+  const toStore = {
+    id:               data.id,
+    parent_name:      maps.prodById[data.parent_id]?.name || data.parent_id,
+    child_name:       data.child_type === '原料'
+                        ? (maps.ingById[data.child_id]?.name  || data.child_id)
+                        : (maps.prodById[data.child_id]?.name || data.child_id),
+    child_type:       data.child_type,
+    weight:           data.weight,
+    work_days_before: data.work_days_before,
+    display_order:    data.display_order
+  };
   const all = sheetToObjects_(sheet);
-  if (data.id) {
-    const idx = all.findIndex(r => r.id === data.id);
-    if (idx >= 0) all[idx] = data; else all.push(data);
-  } else {
-    data.id = generateId_();
-    all.push(data);
-  }
+  const idx = all.findIndex(r => r.id === toStore.id);
+  if (idx >= 0) all[idx] = toStore; else all.push(toStore);
   objectsToSheet_(sheet, all);
   return data;
 }
@@ -123,20 +146,41 @@ function deleteRecipe(id) {
 // ---- 固定レシピ ----
 
 function getFixedRecipes() {
-  return sheetToObjects_(getSheet_(SHEET_NAMES.FIXED_RECIPES));
+  const rows = sheetToObjects_(getSheet_(SHEET_NAMES.FIXED_RECIPES));
+  const maps = buildNameMaps_();
+  return rows.map(r => {
+    const childProd = maps.prodByName[r.child_name];
+    const childIng  = maps.ingByName[r.child_name];
+    const child     = r.child_type === '原料' ? childIng : childProd;
+    return {
+      id:           r.id,
+      item_id:      maps.prodByName[r.item_name]?.id || r.item_name,
+      child_id:     child?.id || r.child_name,
+      child_type:   r.child_type,
+      weight:       r.weight,
+      display_order: r.display_order
+    };
+  });
 }
 
 function saveFixedRecipe(data) {
   invalidateMasterCache_();
   const sheet = getSheet_(SHEET_NAMES.FIXED_RECIPES);
+  const maps  = buildNameMaps_();
+  if (!data.id) data.id = generateId_();
+  const toStore = {
+    id:           data.id,
+    item_name:    maps.prodById[data.item_id]?.name || data.item_id,
+    child_name:   data.child_type === '原料'
+                    ? (maps.ingById[data.child_id]?.name  || data.child_id)
+                    : (maps.prodById[data.child_id]?.name || data.child_id),
+    child_type:   data.child_type,
+    weight:       data.weight,
+    display_order: data.display_order
+  };
   const all = sheetToObjects_(sheet);
-  if (data.id) {
-    const idx = all.findIndex(r => r.id === data.id);
-    if (idx >= 0) all[idx] = data; else all.push(data);
-  } else {
-    data.id = generateId_();
-    all.push(data);
-  }
+  const idx = all.findIndex(r => r.id === toStore.id);
+  if (idx >= 0) all[idx] = toStore; else all.push(toStore);
   objectsToSheet_(sheet, all);
   return data;
 }

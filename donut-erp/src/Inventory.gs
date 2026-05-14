@@ -9,12 +9,12 @@ function getInventory() {
 
   const invMap = {};
   invData.forEach(row => {
-    if (row.ingredient_id) invMap[row.ingredient_id] = row;
+    if (row.ingredient_name) invMap[row.ingredient_name] = row;
   });
 
   // 全原料を返す（在庫未登録は 0 扱い）
   return ingredients.map(ing => {
-    const inv = invMap[ing.id] || {};
+    const inv = invMap[ing.name] || {};
     return {
       ingredient_id:   ing.id,
       ingredient_name: ing.name,
@@ -26,17 +26,20 @@ function getInventory() {
 }
 
 function updateInventoryItem(ingredientId, quantity) {
-  const sheet = getSheet_(SHEET_NAMES.INVENTORY);
-  const data  = sheet.getDataRange().getValues();
-  const today = formatDate_(new Date());
+  const sheet      = getSheet_(SHEET_NAMES.INVENTORY);
+  const ingredients = getIngredients();
+  const ing        = ingredients.find(i => i.id === ingredientId);
+  const ingName    = ing?.name || ingredientId;
+  const today      = formatDate_(new Date());
 
+  const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][0]) === String(ingredientId)) {
+    if (String(data[i][0]) === ingName) {
       sheet.getRange(i + 1, 2, 1, 2).setValues([[Number(quantity), today]]);
       return { success: true };
     }
   }
-  sheet.appendRow([ingredientId, Number(quantity), today]);
+  sheet.appendRow([ingName, Number(quantity), today]);
   return { success: true };
 }
 

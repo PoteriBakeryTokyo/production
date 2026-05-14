@@ -85,7 +85,7 @@ function getWorkSchedule(workDateStr) {
     return Number(a.displayOrder || 0) - Number(b.displayOrder || 0);
   });
 
-  // fixedItems 組み立て
+  // fixedItems 組み立て（商品マスタの表示順でソート）
   const fixedItems = [];
   fixedItemIds.forEach(itemId => {
     const item   = prodMap[itemId];
@@ -98,8 +98,9 @@ function getWorkSchedule(workDateStr) {
         weight:    Number(r.weight || 0)
       }));
 
-    fixedItems.push({ itemId, itemName: item?.name || itemId, recipe });
+    fixedItems.push({ itemId, itemName: item?.name || itemId, displayOrder: Number(item?.display_order || 0), recipe });
   });
+  fixedItems.sort((a, b) => a.displayOrder - b.displayOrder);
 
   return { workDate: workDateStr, dailyItems, fixedItems };
 }
