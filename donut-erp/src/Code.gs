@@ -2,7 +2,7 @@
 // ドーナツ工場ERP - Code.gs（エントリポイント・共通ユーティリティ）
 // ============================================================
 
-const ADMIN_PASSWORD = 'Poteri1235';
+const ADMIN_PASSWORD = PropertiesService.getScriptProperties().getProperty('ADMIN_PASSWORD') || '';
 
 const SHEET_NAMES = {
   INGREDIENTS:     '原料マスタ',
@@ -84,8 +84,7 @@ function doPost(e) {
       case 'saveFixedRecipe':           return respond({ status: 'ok', result: saveFixedRecipe(payload.data) });
       case 'deleteFixedRecipe':         return respond({ status: 'ok', result: deleteFixedRecipe(payload.id) });
       case 'saveProductionPlanItems':   return respond({ status: 'ok', result: saveProductionPlanItems(payload.items, payload.password) });
-      case 'deleteProductionPlanItems': return respond({ status: 'ok', result: deleteProductionPlanItems(payload.ids, payload.password) });
-      case 'exportProductionPlan':      return respond({ status: 'ok', result: exportProductionPlan() });
+      case 'deleteProductionPlanItems': return respond({ status: 'ok', result: deleteProductionPlanItems(payload.ids, payload.password) });      case 'exportProductionPlan':      return respond({ status: 'ok', result: exportProductionPlan() });
       case 'importProductionPlan':      return respond({ status: 'ok', result: importProductionPlan(payload.password) });
       case 'updateInventoryItem':       return respond({ status: 'ok', result: updateInventoryItem(payload.ingredientId, payload.quantity) });
       case 'verifyPassword':            return respond({ status: 'ok', result: verifyPassword(payload.password) });
@@ -328,6 +327,13 @@ function migrateToNameBased() {
 
   invalidateMasterCache_();
   Logger.log('migrateToNameBased 完了');
+}
+
+// ---- キャッシュクリア（手動実行用） ----
+
+function clearCache() {
+  CacheService.getScriptCache().remove('allMasterData');
+  Logger.log('キャッシュをクリアしました');
 }
 
 // ---- ID欠損修正（手動入力データのid列が空の場合に1回実行） ----
